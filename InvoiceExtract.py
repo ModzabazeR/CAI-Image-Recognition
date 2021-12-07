@@ -2,6 +2,9 @@ import pdfplumber
 import os
 import re
 import json
+import csv
+import openpyxl as xl
+from openpyxl.styles import PatternFill, Alignment, Border, Side
 import pandas as pd
 from collections import OrderedDict
 
@@ -15,12 +18,14 @@ def pretty_save_json(file: str, data: dict) -> None:
     with open(file, 'w', encoding='utf-8') as f:
         json.dump(data, f, ensure_ascii=False, indent=4)
 
+
 def ie_extract_text(path: str) -> str:
     text = ""
     with pdfplumber.open(path) as pdf:
         for page in pdf.pages:
             text += page.extract_text()
     return text
+
 
 class PDFInvoice:
     # Invoice metadata
@@ -47,10 +52,10 @@ class PDFInvoice:
     def get_invoice_info(self) -> None:
         pass
 
-    def extract(self, file: str) -> None:
+    def extract(self, file: str, mode: str = "records") -> None:
         pass
 
-    def get_entries(self) -> dict:
+    def get_entries(self, mode: str = "records") -> dict:
         data = {
             "บริษัท (ผู้รับเงิน)": self.receiver,
             "ธนาคาร": self.bank,
@@ -59,12 +64,13 @@ class PDFInvoice:
             "จำนวนเงินที่ชำระ": self.total_after_tax,
             "เลขที่เช็ค": self.cheque_id,
             "ชื่อลูกค้า": self.sender,
-            "items": self.extract(self.file_path),
+            "items": self.extract(self.file_path, mode),
             "ค่าธรรมเนียมธนาคาร (ถ้ามี)": self.bank_charge
         }
         return data
 
     def __init__(self, file_path: str) -> None:
+        self.info = None
         if not os.path.exists('output'):
             os.makedirs('output')
 
@@ -77,7 +83,6 @@ class PDFInvoice:
             raise Exception('File type not supported')
 
     def to_txt(self) -> None:
-        "Extract raw text from the pdf file"
         with open(f'output/{os.path.basename(self.file_path)}.txt', 'w', encoding='utf-8') as f:
             for page in self.info:
                 f.write(f'[PAGE {page.page_number}]\n') if page.page_number == 1 else f.write(
@@ -93,16 +98,87 @@ class PDFInvoice:
         print(f'"{os.path.basename(self.file_path)}.json" written to output folder\n')
 
     def to_excel(self) -> None:
-        pd.DataFrame.from_dict(self.get_entries(), orient='columns').to_excel(
-            f'output/{os.path.basename(self.file_path)}.xlsx', index=False)
-        print(f'"{os.path.basename(self.file_path)}.xlsx" written to output folder')
+        if not os.path.exists(r'output/temp'):
+            os.mkdir(r'output/temp')
+
+        file = self.get_entries(mode="list")
+
+        metadata = {k: v for k, v in file.items() if k != "items" and k !=
+                    "ค่าธรรมเนียมธนาคาร (ถ้ามี)"}
+        items = file["items"]
+        fee = file["ค่าธรรมเนียมธนาคาร (ถ้ามี)"]
+        header = [i for i in metadata.keys()] + [i for i in items.keys()] + \
+                 ["ค่าธรรมเนียมธนาคาร (ถ้ามี)"]
+
+        # to csv
+        with open(f"output/temp/{os.path.basename(self.file_path)}.csv", "w", encoding="utf-8", newline="") as f:
+            writer = csv.writer(f)
+            writer.writerow(header)
+            if len(items["เลขที่ Invoice"]) > 0:
+                for i in range(len(items["เลขที่ Invoice"])):
+                    if i == 0:
+                        writer.writerow([metadata[k] for k in metadata.keys()] +
+                                        [items[k][i] for k in items.keys()] + [fee])
+                    else:
+                        writer.writerow([None for _ in metadata.keys()] +
+                                        [items[k][i] for k in items.keys()])
+            else:
+                writer.writerow([metadata[k] for k in metadata.keys()] +
+                                [None for _ in items.keys()] + [fee])
+
+        df = pd.read_csv(f"output/temp/{os.path.basename(self.file_path)}.csv", encoding="utf-8")
+        df.to_excel(f"output/{os.path.basename(self.file_path)}.xlsx", index=False)
+        os.remove(f"output/temp/{os.path.basename(self.file_path)}.csv")
+
+        # Excel operation
+        cols = ["A", "B", "C", "D", "E", "F", "G", "N"]
+        null_fill = PatternFill(patternType="solid", fgColor="D9D9D9")
+        normal_align = Alignment(horizontal="left", vertical="top")
+        border = Border(left=Side(style='thin'),
+                        right=Side(style='thin'),
+                        top=Side(style='thin'),
+                        bottom=Side(style='thin'))
+        header_fill = PatternFill(patternType="solid", fgColor="FFFF99")
+
+        wb = xl.load_workbook(f"output/{os.path.basename(self.file_path)}.xlsx")
+        ws = wb["Sheet1"]
+
+        c = ws["C2"]
+        ws.freeze_panes = c
+
+        # merge cells
+        for col in cols:
+            try:
+                ws.merge_cells(f"{col}2:{col}{len(items['เลขที่ Invoice']) + 1}")
+            except ValueError:
+                pass
+
+        # set border
+        for column_cells in ws.columns:
+            length = max(len(str(cell.value)) for cell in column_cells)
+            ws.column_dimensions[column_cells[0].column_letter].width = length
+
+        # styling
+        for row in ws.iter_rows():
+            for cell in row:
+                if cell.row == 1:
+                    cell.fill = header_fill
+                if cell.value is None:
+                    cell.fill = null_fill
+                cell.alignment = normal_align
+                cell.border = border
+
+        wb.save(f"output/{os.path.basename(self.file_path)}.xlsx")
+        print(f'"{os.path.basename(self.file_path)}.xlsx" written to output folder\n')
+
+
+def correct_words(text: str, mapping: dict) -> str:
+    for word in mapping:
+        text = text.replace(word, mapping[word])
+    return text
 
 
 class KBANKInvoice(PDFInvoice):
-    def correct_words(self, text: str, mapping: dict) -> str:
-        for word in mapping:
-            text = text.replace(word, mapping[word])
-        return text
 
     def parse_row(self, row):
         return OrderedDict([
@@ -115,7 +191,7 @@ class KBANKInvoice(PDFInvoice):
             ("NET AMOUNT", row[65:].strip())
         ])
 
-    def extract(self, path: str) -> dict:
+    def extract(self, path: str, mode="records") -> dict:
         pdf = pdfplumber.open(path)
         p0 = pdf.pages[1]
         text = p0.extract_text()
@@ -126,11 +202,12 @@ class KBANKInvoice(PDFInvoice):
         parsed = [self.parse_row(x) for x in core]
         cols = list(parsed[0].keys())
         data = pd.DataFrame(parsed, columns=cols)
-        data = data.drop(["INV.DATE"], 1)
+        data = data.drop(columns="INV.DATE")
         data = data.rename(columns={"INV.NUMBER": "เลขที่ Invoice", "INV.AMOUNT": "Amt. (ก่อน Vat)",
-                                    "VAT AMT": "Vat. Amt", "WHT AMT": "WHT Amt. (แต่ละ Inv)", "NET AMOUNT": "จำนวนเงินสุทธิ (แต่ละ Inv)"})
+                                    "VAT AMT": "Vat. Amt", "WHT AMT": "WHT Amt. (แต่ละ Inv)",
+                                    "NET AMOUNT": "จำนวนเงินสุทธิ (แต่ละ Inv)"})
         data = data.replace([''], [None])
-        data_dict = data.to_dict(orient="records")
+        data_dict = data.to_dict(orient=mode)
         return data_dict
 
     def get_invoice_info(self) -> None:
@@ -138,15 +215,15 @@ class KBANKInvoice(PDFInvoice):
 
         for page in self.info:
             self.text += page.extract_text()
-        
-        self.text = self.correct_words(self.text, MAPPING)
+
+        self.text = correct_words(self.text, MAPPING)
 
         type_match = re.search(r"(Subject : )(\w)+", self.text)
         if type_match:
             self.invoice_type = type_match.group(2)
 
         date_match = re.search(
-            r"(Cheque Date : )(\d{2}\/\d{2}/\d{4})", self.text)
+            r"(Cheque Date : )(\d{2}/\d{2}/\d{4})", self.text)
         if date_match:
             self.payment_date = date_match.group(2)
         else:
@@ -188,16 +265,21 @@ class KBANKInvoice(PDFInvoice):
 
 
 class BBLInvoice(PDFInvoice):
+    credit_advice_cols = ["Item No", "Invoice No.", "Date",
+                          "Gross Amount", "WHT Amount", "VAT Amount", "Income Type"]
+    pre_advice_cols = ["Item No", "Invoice No.",
+                       "Date", "Gross Amount", "WHT Amount"]
+
     def get_invoice_info(self) -> None:
         self.info = self.pdf.pages
 
         for page in self.info:
             self.text += page.extract_text()
 
-        for type in self.invoice_types:
-            if type in self.text:
-                self.invoice_type = type
-                break
+        if all(x in self.text for x in self.credit_advice_cols):
+            self.invoice_type = self.invoice_types[0]
+        elif all(x in self.text for x in self.pre_advice_cols):
+            self.invoice_type = self.invoice_types[1]
 
         if self.invoice_type not in self.invoice_types:
             raise ValueError(
@@ -242,26 +324,28 @@ class BBLInvoice(PDFInvoice):
         super().__init__(file_path)
         self.bank = 'กรุงเทพ (BBL)'
 
-    def extract(self, file: str) -> dict:
+    def extract(self, file: str, mode: str = "records") -> dict:
         pdf = pdfplumber.open(file)
 
-        credit_advice_cols = ["Item No", "Invoice No.", "Date",
-                              "Gross Amount", "WHT Amount", "VAT Amount", "Income Type"]
-        pre_advice_cols = ["Item No", "Invoice No.",
-                           "Date", "Gross Amount", "WHT Amount"]
-
-        cols = credit_advice_cols if self.invoice_type == 'Credit Advice Report' else pre_advice_cols
+        cols = self.credit_advice_cols if self.invoice_type == 'Credit Advice Report' else self.pre_advice_cols
 
         data = pd.DataFrame(columns=cols)
 
         for page in pdf.pages:
             table = page.extract_table()
             if type(table) != list:
-                return None
+                return {
+                    "เลขที่ Invoice": [],
+                    "Amt. (ก่อน Vat)": [],
+                    "Vat. Amt": [],
+                    "Amt. (รวม Vat)": [],
+                    "WHT Amt. (แต่ละ Inv)": [],
+                    "จำนวนเงินสุทธิ (แต่ละ Inv)": []
+                }
 
             # Filter out empty rows
             table = list(filter(lambda a: a != ['', '', '', '', '', '', ''] and a != [
-                         '', '', '', '', ''], table))
+                '', '', '', '', ''], table))
 
             # replace \n with space in the table
             for i in range(len(table)):
@@ -272,13 +356,14 @@ class BBLInvoice(PDFInvoice):
                 df = pd.DataFrame(table[0:-1], columns=cols)
             else:
                 df = pd.DataFrame(
-                    table[1:-1], columns=cols) if self.invoice_type == 'Credit Advice Report' else pd.DataFrame(table, columns=cols)
+                    table[1:-1], columns=cols) if self.invoice_type == 'Credit Advice Report' else pd.DataFrame(table,
+                                                                                                                columns=cols)
 
             data = pd.concat([data, df], ignore_index=True)
 
         data = data.drop(0)
         data = data[["Invoice No.", "Gross Amount", "WHT Amount"]]
-        placeholder = [None for i in range(len(data))]
+        placeholder = [None for _ in range(len(data))]
         data.insert(1, "Amt. (ก่อน Vat)", placeholder)
         data.insert(2, "Vat. Amt", placeholder)
         data["จำนวนเงินสุทธิ (แต่ละ Inv)"] = placeholder
@@ -286,10 +371,17 @@ class BBLInvoice(PDFInvoice):
         data = data.rename(columns={"Invoice No.": "เลขที่ Invoice",
                                     "Gross Amount": "Amt. (รวม Vat)", "WHT Amount": "WHT Amt. (แต่ละ Inv)"})
         data = data.replace([''], [None])
-        
-        # if all the invoice data are None, return None
-        if all(data.isna().all()):
-            return None
 
-        data_dict = data.to_dict(orient="records")
+        # if all the invoice data are None, return empty dict
+        if all(data.isna().all()):
+            return {
+                    "เลขที่ Invoice": [],
+                    "Amt. (ก่อน Vat)": [],
+                    "Vat. Amt": [],
+                    "Amt. (รวม Vat)": [],
+                    "WHT Amt. (แต่ละ Inv)": [],
+                    "จำนวนเงินสุทธิ (แต่ละ Inv)": []
+                }
+
+        data_dict = data.to_dict(orient=mode)
         return data_dict
