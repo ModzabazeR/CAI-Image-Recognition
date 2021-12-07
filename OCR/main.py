@@ -1,5 +1,3 @@
-#!/usr/bin/env python
-# -*- coding: utf-8 -*-
 from google.cloud import vision
 import os
 import cv2
@@ -9,7 +7,7 @@ import moddaeng as md
 os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = "vision-api-key.json"
 client = vision.ImageAnnotatorClient()
 
-image_to_show = filedialog.askopenfilename(filetypes=[("Image File", '.jpg', '.png', '.jpeg'), ("All Files", ".*")])
+image_to_show = filedialog.askopenfilename(filetypes=[("Image File", '.jpg .png .jpeg'), ("All Files", ".*")])
 image_to_scan = md.preprocess(image_to_show)
 
 if image_to_show.endswith('.jpg'):
