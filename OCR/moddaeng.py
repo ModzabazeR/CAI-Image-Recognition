@@ -30,12 +30,12 @@ def cv_show(img: str, annots):
     img = cv2.imread(img)
     print('Texts:')
     for text in annots:
-        print('\n"{}"'.format(text.description))
+        # print('\n"{}"'.format(text.description))
 
         vertices = (['({},{})'.format(vertex.x, vertex.y)
                     for vertex in text.bounding_poly.vertices])
 
-        print('bounds: {}'.format(','.join(vertices)))
+        # print('bounds: {}'.format(','.join(vertices)))
         cv2.rectangle(img, (text.bounding_poly.vertices[0].x, text.bounding_poly.vertices[0].y),
                     (text.bounding_poly.vertices[2].x, text.bounding_poly.vertices[2].y), (0, 255, 0), 2)
         cv2.putText(img, text.description, (text.bounding_poly.vertices[0].x, text.bounding_poly.vertices[0].y),
@@ -55,10 +55,10 @@ def pil_show(img: str, annots, fontpath: str):
     draw = ImageDraw.Draw(img_pil)
 
     for text in annots:
-        print('\n"{}"'.format(text.description))
+        # print('\n"{}"'.format(text.description))
         vertices = (['({},{})'.format(vertex.x, vertex.y)
                     for vertex in text.bounding_poly.vertices])
-        print('bounds: {}'.format(','.join(vertices)))
+        # print('bounds: {}'.format(','.join(vertices)))
         draw.rectangle([(text.bounding_poly.vertices[0].x, text.bounding_poly.vertices[0].y),
                         (text.bounding_poly.vertices[2].x, text.bounding_poly.vertices[2].y)], outline=(0, 255, 0), width=4)
         draw.text((text.bounding_poly.vertices[0].x, text.bounding_poly.vertices[0].y - 25), text.description, font=font, fill=(0, 0, 255))
