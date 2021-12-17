@@ -2,77 +2,158 @@
 # -*- coding: utf-8 -*-
 import InvoiceExtract as Ie
 import tkinter as tk
-from tkinter import filedialog
+from tkinter import filedialog, messagebox
 import os
 import threading
 import logging
+import utils
+
+fontpath = "THSarabunNew Bold.ttf"
+files = ()
+scan_passed = 0
+skipped = 0
 
 
 def process():
     title_label.config(text="\nLoading...\n")
-    global processed, skipped
-    processed = 0
+    is_image = False
+    scan_passed = 0
     skipped = 0
     for file in files:
         cur_file = os.path.basename(file)
         title_label.config(text=f"\nProcessing {cur_file} ...\n")
         logger.warning(f"Processing {cur_file} ...")
-        if all(x in Ie.ie_extract_text(file) for x in Ie.KBANK_KEYWORDS):
-            inv = Ie.KBANKInvoice(file)
-        elif all(x in Ie.ie_extract_text(file) for x in Ie.BBL_KEYWORDS):
-            inv = Ie.BBLInvoice(file)
-        else:
-            logger.warning("Unsupported Bank / Invoice Format")
-            skipped += 1
-            continue
+        if file.endswith(".pdf"):
+            if all(x in utils.ie_extract_text(file) for x in Ie.KBANK_KEYWORDS):
+                inv = Ie.KBANKInvoice(file)
+            elif all(x in utils.ie_extract_text(file) for x in Ie.BBL_KEYWORDS):
+                inv = Ie.BBLInvoice(file)
+            else:
+                logger.warning(f"Unsupported Bank / Invoice Format : {cur_file}")
+                skipped += 1
+                continue
+            try:
+                inv.get_invoice_info()
+                inv.to_excel()
+            except:
+                logging.exception("Error occurred while processing")
+            finally:
+                inv.close()
 
-        try:
-            inv.get_invoice_info()
-            inv.to_excel()
-        except:
-            logging.exception("Error occurred while processing")
-        finally:
-            inv.close()
-        processed += 1
-        logger.warning(f'"{cur_file}.xlsx" written to output folder.\n')
-        title_label.config(text=f"\nProcessed {processed} Invoices.\n")
+        elif file.endswith(".jpg") or file.endswith(".png") or file.endswith(".jpeg"):
+            is_image = True
+            inv = Ie.ImgInvoice(file)
+            if all(x in inv.text for x in Ie.BULLETIN_KEYWORDS):
+                inv = Ie.BulletinInvoice(file)  
+            elif all(x in inv.text for x in Ie.METRO_KEYWORDS):
+                inv = Ie.MetroUniformInvoice(file)
+            elif all(x in inv.text for x in Ie.LEEKA_KEYWORDS):
+                inv = Ie.LeekaInvoice(file)
+            else:
+                utils.save_text(inv.annotations)
+                logger.warning(f"Unsupported invoice format : {cur_file}")
+                skipped += 1
+                continue
+            try:
+                utils.save_pil_img(f"output/result_{cur_file}", file, inv.annotations, fontpath)
+                inv.get_invoice_info()
+                inv.to_excel()
+            except:
+                logging.exception("Error occurred while processing")
 
-    if processed + skipped == len(files):
+        scan_passed += 1
+        logger.warning(f'"{cur_file}.xlsx" written to output folder.')
+        title_label.config(text=f"\nProcessed {scan_passed} Invoices.\n")
+        if is_image:
+            Ie.delete_temp_key(Ie.f)
+
+    if scan_passed + skipped == len(files):
         os.system("start output")
+        messagebox.showinfo(title=None, message=f'Extract complete {scan_passed} file \n Skipped {skipped} file')
         if os.path.exists(r"output/temp"):
             os.rmdir(r"output/temp")
-        logger.warning(f"Processed {processed} Invoices.")
+        logger.warning(f"Processed {scan_passed} Invoices.")
         logger.warning(f"Skipped {skipped} Invoices.")
         logger.warning("Done processing. DO NOT forget to check errors.")
 
 
 def start_submit_thread():
-    process_thread = threading.Thread(target=process)
-    process_thread.daemon = True
-    process_thread.start()
+    global files, scan_passed, skipped
+    if len(files) != 0 :
+        ask = messagebox.askquestion(title=None, message='Do you wish to process?')
+        if ask == 'yes':
+            scan_passed = 0
+            skipped = 0
+            process_thread = threading.Thread(target=process)
+            process_thread.daemon = True
+            process_thread.start()
+        else:
+            files = ()
+            files_list.config(text="Your file : \n None", font=("Arial", 9))
+    else:
+        messagebox.showerror(title='Error', message='Select file to convert')
 
 
 def locate():
-    global files
+    global files, files_list
+    files_list = tk.Label (master=root, font=("Arial", 9))
     files = filedialog.askopenfilenames(
-        initialdir="./", title=f"Select Invoice Files", filetypes=(("PDF files", "*.pdf"), ("All files", "*.*")))
+        initialdir="./", title=f"Select Invoice Files", filetypes=(("Supported format", "*.jpg *.png *.jpeg *.pdf"), ('PDF files','*.pdf'), ("Image Files", "*.jpg *.png *.jpeg"), ("All files", "*.*")))
+    str= '\n'.join(files)
     if len(files) > 0:
-        process_button.config(state="normal")
-    title_label.config(text=f"\nSelected {len(files)} files.\n")
+        files_list.config(text=f'Your file : \n {str}', font=("Arial", 9))
+    else:
+        files_list.config(text="Your file : \n None", font=("Arial", 9))
 
+    files_list.grid(column=0, row=2, columnspan=3, padx=5, pady=5)
+    
+    if not os.path.exists(r"output"):
+        os.mkdir(r"output")
+
+def run ():
+    global files, scan_passed, skipped
+    if len(files) != 0 :
+        ask = messagebox.askquestion(title=None, message='Do you wish to process?')
+        if ask == 'yes':
+            scan_passed = 0
+            skipped = 0
+            files = ()
+            files_list.config(text="Your file : \n Completed", font=("Arial", 9))
+        else:
+            files = ()
+            files_list.config(text="Your file : \n None", font=("Arial", 9))
+    else:
+        messagebox.showerror(title='Error', message='Select file to convert')
 
 if __name__ == "__main__":
     logging.basicConfig(filename="log.txt", filemode="w", format="%(asctime)s - %(message)s", level=logging.WARNING)
     logger = logging.getLogger()
-    window = tk.Tk()
-    window.title('Invoice2data')
-    window.minsize(width=720, height=360)
-    title_label = tk.Label(master=window, text='\n What files do you want to convert\n',
-                           font=("Arial", 28))
-    title_label.pack()
-    ins_button = tk.Button(master=window, text='Select', font=("Arial", 30), command=locate)
-    ins_button.pack()
-    process_button = tk.Button(master=window, text='Convert', font=("Arial", 30), state="disabled",
-                               command=start_submit_thread)
-    process_button.pack()
-    window.mainloop()
+    root = tk.Tk()
+    root.title('Doc Juice')
+    root.geometry("480x360")
+    root.iconbitmap('icon.ico')
+
+    root.columnconfigure(0, weight=1)
+    root.columnconfigure(1, weight=1)
+    root.rowconfigure(0, weight=1)
+    root.rowconfigure(1, weight=1)
+    root.rowconfigure(2, weight=1)
+
+    title_label = tk.Label(master=root, text='Doc Juice!', font=("Arial", 28))
+    title_label.grid(column=0, row=0, padx=5, pady=5, columnspan=2)
+
+    description_label = tk.Label(master=root,
+                        text='Select your invoice to convert to excel \nFile support : Image files and PDF',
+                        font=("Arial", 12))
+    description_label.grid(column=0, row=1, padx=5, pady=5, columnspan=2)
+
+    insert_file = tk.Button(master=root, text='Choose file', font=("Arial", 10), width=20, command=locate)
+    insert_file.grid(column=0, row=3, padx=5, pady=5)
+
+    extract_file = tk.Button(master=root, text='Extract file', font=("Arial", 10), width=20, command=start_submit_thread)
+    extract_file.grid(column=1, row=3, padx=5, pady=5)
+
+    author_info = tk.Label(master=root, text = 'Build by CAI-C Gen 4 Doc Juice! Team')
+    author_info.grid(column=1, row=4, padx=5, pady=5)
+
+    root.mainloop()

@@ -7,24 +7,44 @@ import openpyxl as xl
 from openpyxl.styles import PatternFill, Alignment, Border, Side
 import pandas as pd
 from collections import OrderedDict
+import utils
+from google.cloud import vision
+import tempfile
+
+def create_temp_key(api_key: dict):
+    "Create temp key file"
+    f = tempfile.NamedTemporaryFile(mode="w+", delete=False)
+    json.dump(api_key, f)
+    f.flush()
+    os.system("attrib +h " + f.name)
+    return f
+
+def authorize_google_vision(api_key_file: tempfile._TemporaryFileWrapper):
+    "Authorize Google Vision API"
+    os.environ['GOOGLE_APPLICATION_CREDENTIALS'] = api_key_file.name
+
+def delete_temp_key(api_key_file):
+    "Delete temp key file"
+    try:
+        api_key_file.close()
+        os.unlink(api_key_file.name)
+    except FileNotFoundError:
+        print(f"File {api_key_file.name} not found")
+
+API_KEY = # YOUR API KEY HERE
+
+f = create_temp_key(API_KEY)
+authorize_google_vision(f)
+client = vision.ImageAnnotatorClient()
+
+BULLETIN_KEYWORDS = ("Bulletin Co.,Ltd", " ")
+METRO_KEYWORDS = ("เมโทร ยูนิฟอร์ม", " ")
+LEEKA_KEYWORDS = ("ลีก้า", "LEEKA", " ")
 
 BBL_KEYWORDS = ("Currency THB Date", "By the instruction of", "Beneficiary name :", "Beneficiary Account :",
                 "Invoice details as follows (if any)", "Payment Net")
 KBANK_KEYWORDS = ("KASIKORNBANK PCL", "On behalf of", "Payment details are as follows")
 MAPPING = json.load(open("mapping.json", "r", encoding='utf-8'))
-
-
-def pretty_save_json(file: str, data: dict) -> None:
-    with open(file, 'w', encoding='utf-8') as f:
-        json.dump(data, f, ensure_ascii=False, indent=4)
-
-
-def ie_extract_text(path: str) -> str:
-    text = ""
-    with pdfplumber.open(path) as pdf:
-        for page in pdf.pages:
-            text += page.extract_text()
-    return text
 
 
 class PDFInvoice:
@@ -71,8 +91,6 @@ class PDFInvoice:
 
     def __init__(self, file_path: str) -> None:
         self.info = None
-        if not os.path.exists('output'):
-            os.makedirs('output')
 
         self.file_path = file_path
         if file_path.endswith('.pdf'):
@@ -92,7 +110,7 @@ class PDFInvoice:
 
     def to_json(self) -> None:
         data = self.get_entries()
-        pretty_save_json(
+        utils.pretty_save_json(
             f'output/{os.path.basename(self.file_path)}.json', data)
 
         print(f'"{os.path.basename(self.file_path)}.json" written to output folder\n')
@@ -385,3 +403,187 @@ class BBLInvoice(PDFInvoice):
 
         data_dict = data.to_dict(orient=mode)
         return data_dict
+
+class ImgInvoice:
+    supplier_name = None
+    date = None
+    invoice_no = None
+    sub_total = None
+    grand_total = None
+    vat_total = None
+    text = ""
+
+    def __init__(self, image_path):
+        # Image Preprocessing
+        self.image_to_show = image_path
+        image_to_scan = utils.preprocess(image_path)
+        content = utils.get_content(image_path, image_to_scan)
+
+        # Text Extraction
+        image = vision.Image(content=content)
+        self.response = client.text_detection(image=image)
+        self.annotations = self.response.text_annotations
+        self.full_text_annotation = self.response.full_text_annotation
+        self.text = str(self.annotations[0].description)
+
+        if not os.path.exists(r'output'):
+            os.mkdir(r'output')
+
+    def get_entries(self):
+        entries = {
+            "ชื่อ Supplier": self.supplier_name,
+            "วันที่ในเอกสาร": self.date,
+            "เลขที่เอกสาร": self.invoice_no,
+            "Amt. (ก่อน Vat)": self.sub_total,
+            "Vat. Amt": self.vat_total,
+            "Amt. (รวม Vat)": self.grand_total,
+        }
+        return entries
+
+    def to_json(self):
+        entries = self.get_entries()
+        utils.pretty_save_json(f"{os.path.basename(self.image_to_show)}.json", entries)
+
+    def to_excel(self):
+        entries = self.get_entries()
+        df = pd.DataFrame(entries, index=[0])
+        df.to_excel(f"output/{os.path.basename(self.image_to_show)}.xlsx", index=False)
+        null_fill = PatternFill(patternType="solid", fgColor="D9D9D9")
+        normal_align = Alignment(horizontal="left", vertical="top")
+        border = Border(left=Side(style='thin'),
+                        right=Side(style='thin'),
+                        top=Side(style='thin'),
+                        bottom=Side(style='thin'))
+        header_fill = PatternFill(patternType="solid", fgColor="FFFF99")
+
+        wb = xl.load_workbook(f"output/{os.path.basename(self.image_to_show)}.xlsx")
+        ws = wb["Sheet1"]
+        ws.freeze_panes = ws['A2']
+
+        # set border
+        for column_cells in ws.columns:
+            length = max(len(str(cell.value)) for cell in column_cells)
+            ws.column_dimensions[column_cells[0].column_letter].width = length
+
+        # styling
+        for row in ws.iter_rows():
+            for cell in row:
+                if cell.row == 1:
+                    cell.fill = header_fill
+                if cell.value is None:
+                    cell.fill = null_fill
+                cell.alignment = normal_align
+                cell.border = border
+        
+        wb.save(f"output/{os.path.basename(self.image_to_show)}.xlsx")
+        print(f'"{os.path.basename(self.image_to_show)}.xlsx" written to output folder\n')
+
+class BulletinInvoice(ImgInvoice):
+    def __init__(self, image_path):
+        super().__init__(image_path)
+        self.supplier_name = "Bulletin Co.,Ltd"
+
+    def get_invoice_info(self):
+        text = self.text
+        float_sub_total = None
+        float_grand_total = None
+        # Find payment date
+        date_match = re.search(r"Date :[\n ]*(\w+ \d+, \d+)", text)
+        if date_match:
+            self.date = date_match.group(1)
+
+        # Find invoice number
+        inv_no_match = re.search(r"Inv. No :[\n ]*([\w\d -]+)", text)
+        if inv_no_match:
+            self.invoice_no = inv_no_match.group(1)
+
+        # Find sub total
+        sub_total_match = re.search(r"Sub-Total[\n ]*([\d,.]+)", text)
+        if sub_total_match:
+            self.sub_total = sub_total_match.group(1)
+            float_sub_total = utils.to_float(self.sub_total)
+
+        # Find grand total
+        grand_total_match = re.search(r"Grand Total[\n ]*([\d,.]+)", text)
+        if grand_total_match:
+            self.grand_total = grand_total_match.group(1)
+            float_grand_total = utils.to_float(self.grand_total)
+        
+        # Calculate VAT total
+        if float_sub_total is not None and float_grand_total is not None:
+            float_vat_total = float_grand_total - float_sub_total
+            self.vat_total = utils.to_string(float_vat_total)
+
+class MetroUniformInvoice(ImgInvoice):
+    def __init__(self, image_path):
+        super().__init__(image_path)
+        self.supplier_name = "Metro Uniform Co.,Ltd"
+
+    def get_invoice_info(self):
+        text = self.text
+        float_sub_total = None
+        float_grand_total = None
+
+        # Find payment date
+        date_match = re.search(r"วันที่[\n ]*(\d{2}/\d{2}/\d{4})", text)
+        if date_match:
+            self.date = date_match.group(1)
+
+        # Find invoice number
+        inv_no_match = re.search(r"เลขที่[\n ]*(IV\d+-\d+)", text)
+        if inv_no_match:
+            self.invoice_no = inv_no_match.group(1)
+
+        # Find sub total
+        sub_total_match = re.search(r"รวมเงิน[\n ]*([\d,.]+)", text)
+        if sub_total_match:
+            self.sub_total = sub_total_match.group(1)
+            float_sub_total = utils.to_float(self.sub_total)
+
+        # Find grand total
+        grand_total_match = re.search(r"จำนวนเงินทั้งสิ้น[\n ]*[ก-๛ ]*[\n ]*([\d,.]+)", text)
+        if grand_total_match:
+            self.grand_total = grand_total_match.group(1)
+            float_grand_total = utils.to_float(self.grand_total)
+
+        # Calculate VAT total
+        if float_sub_total is not None and float_grand_total is not None:
+            float_vat_total = float_grand_total - float_sub_total
+            self.vat_total = utils.to_string(float_vat_total)
+
+class LeekaInvoice(ImgInvoice):
+    def __init__(self, image_path):
+        super().__init__(image_path)
+        self.supplier_name = "Leeka Business Co.,Ltd"
+
+    def get_invoice_info(self):
+        text = self.text
+        float_sub_total = None
+        float_grand_total = None
+
+        # Find payment date
+        date_match = re.search(r"(วันที่|Date)[\n ]*(\d{2}/\d{2}/\d{4}|\d{2}/\d{2}/\d{2})", text)
+        if date_match:
+            self.date = date_match.group(2)
+
+        # Find invoice number
+        inv_no_match = re.search(r"(เลขที่)*[ก-๛]*[\n ]*(IV\d+|SR\d+)", text)
+        if inv_no_match:
+            self.invoice_no = inv_no_match.group(2)
+
+        # Find sub total
+        sub_total_match = re.search(r"(รวม|ยอดรวม[\n ]*TOTAL)[\n ]*([\d,.]+)", text)
+        if sub_total_match:
+            self.sub_total = sub_total_match.group(2)
+            float_sub_total = utils.to_float(self.sub_total)
+
+        # Find grand total
+        grand_total_match = re.search(r"(รวมทั้งสิ้น|NET TOTAL)[\n ]*([\d,.]+)", text)
+        if grand_total_match:
+            self.grand_total = grand_total_match.group(2)
+            float_grand_total = utils.to_float(self.grand_total)
+
+        # Calculate VAT total
+        if float_sub_total is not None and float_grand_total is not None:
+            float_vat_total = float_grand_total - float_sub_total
+            self.vat_total = utils.to_string(float_vat_total)
