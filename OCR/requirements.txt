@@ -1,5 +1,0 @@
-google-cloud-vision
-imutils
-numpy
-opencv-contrib-python
-Pillow
