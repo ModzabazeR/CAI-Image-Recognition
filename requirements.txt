@@ -1,7 +1,3 @@
 pdfplumber
 pandas
-google-cloud-vision
-imutils
-numpy
-opencv-contrib-python
-Pillow
+openpyxl
