@@ -8,6 +8,7 @@ from openpyxl.styles import PatternFill, Alignment, Border, Side
 import pandas as pd
 from collections import OrderedDict
 import utils
+import GUI
 
 BBL_KEYWORDS = ("Currency THB Date", "By the instruction of", "Beneficiary name :", "Beneficiary Account :",
                 "Invoice details as follows (if any)", "Payment Net")
@@ -17,7 +18,7 @@ SCB_KEYWORDS = ("This document is an integral part of Credit Advice", "เรี
 MAPPING = json.load(open("mapping.json", "r", encoding='utf-8'))
 
 # -------- PDF Invoice -------- #
-
+output = ''
 class PDFInvoice:
     # Invoice metadata
     pdf = None
@@ -86,8 +87,7 @@ class PDFInvoice:
         print(f'"{os.path.basename(self.file_path)}.json" written to output folder\n')
 
     def to_excel(self) -> None:
-        if not os.path.exists(r'output/temp'):
-            os.mkdir(r'output/temp')
+        global output
 
         file = self.get_entries(mode="list")
 
@@ -99,7 +99,7 @@ class PDFInvoice:
                  ["ค่าธรรมเนียมธนาคาร (ถ้ามี)"]
 
         # to csv
-        with open(f"output/temp/{os.path.basename(self.file_path)}.csv", "w", encoding="utf-8", newline="") as f:
+        with open(f"{output}/{os.path.basename(self.file_path)}.csv", "w", encoding="utf-8", newline="") as f:
             writer = csv.writer(f)
             writer.writerow(header)
             if len(items["เลขที่ Invoice"]) > 0:
@@ -114,9 +114,9 @@ class PDFInvoice:
                 writer.writerow([metadata[k] for k in metadata.keys()] +
                                 [None for _ in items.keys()] + [fee])
 
-        df = pd.read_csv(f"output/temp/{os.path.basename(self.file_path)}.csv", encoding="utf-8")
-        df.to_excel(f"output/{os.path.basename(self.file_path)}.xlsx", index=False)
-        os.remove(f"output/temp/{os.path.basename(self.file_path)}.csv")
+        df = pd.read_csv(f"{output}/{os.path.basename(self.file_path)}.csv", encoding="utf-8")
+        df.to_excel(f"{output}/{os.path.basename(self.file_path)}.xlsx", index=False)
+        os.remove(f"{output}/{os.path.basename(self.file_path)}.csv")
 
         # Excel operation
         cols = ["A", "B", "C", "D", "E", "F", "G", "N"]
@@ -158,6 +158,8 @@ class PDFInvoice:
 
         wb.save(f"output/{os.path.basename(self.file_path)}.xlsx")
         print(f'"{os.path.basename(self.file_path)}.xlsx" written to output folder\n')
+        
+
 
 class KBANKInvoice(PDFInvoice):
 
