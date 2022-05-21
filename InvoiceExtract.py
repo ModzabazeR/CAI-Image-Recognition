@@ -1,3 +1,5 @@
+import time
+from openpyxl import Workbook, load_workbook
 import pdfplumber
 import os
 import re
@@ -87,6 +89,8 @@ class PDFInvoice:
         print(f'"{os.path.basename(self.file_path)}.json" written to output folder\n')
 
     def to_excel(self) -> None:
+        if not os.path.exists(r'output/temp'):
+            os.mkdir(r'output/temp')
         global output
 
         file = self.get_entries(mode="list")
@@ -99,7 +103,7 @@ class PDFInvoice:
                  ["ค่าธรรมเนียมธนาคาร (ถ้ามี)"]
 
         # to csv
-        with open(f"{output}/{os.path.basename(self.file_path)}.csv", "w", encoding="utf-8", newline="") as f:
+        with open(f"output/{os.path.basename(self.file_path)}.csv", "w", encoding="utf-8", newline="") as f:
             writer = csv.writer(f)
             writer.writerow(header)
             if len(items["เลขที่ Invoice"]) > 0:
@@ -114,9 +118,10 @@ class PDFInvoice:
                 writer.writerow([metadata[k] for k in metadata.keys()] +
                                 [None for _ in items.keys()] + [fee])
 
-        df = pd.read_csv(f"{output}/{os.path.basename(self.file_path)}.csv", encoding="utf-8")
-        df.to_excel(f"{output}/{os.path.basename(self.file_path)}.xlsx", index=False)
-        os.remove(f"{output}/{os.path.basename(self.file_path)}.csv")
+        df = pd.read_csv(f"output/{os.path.basename(self.file_path)}.csv", encoding="utf-8")
+        df.to_excel(f"output/{os.path.basename(self.file_path)}.xlsx", index=False)
+        
+        os.remove(f"output/{os.path.basename(self.file_path)}.csv")
 
         # Excel operation
         cols = ["A", "B", "C", "D", "E", "F", "G", "N"]
@@ -158,6 +163,76 @@ class PDFInvoice:
 
         wb.save(f"output/{os.path.basename(self.file_path)}.xlsx")
         print(f'"{os.path.basename(self.file_path)}.xlsx" written to output folder\n')
+        
+    def merge_wb(self) -> None:
+
+        wbs = []
+        for file in os.listdir(r'output'):
+            if not file.startswith("~$") and file.endswith(".xlsx"):
+                wb = load_workbook(f"output/{file}")
+                wbs.append(wb)
+                os.remove(f"output/{file}")
+        
+        final_wb = Workbook()
+        final_ws = final_wb.worksheets[0]
+
+        wb1 = wbs[0]
+        ws1 = wb1.worksheets[0] 
+    
+        for j in range(1, ws1.max_column+1):
+            final_ws.cell(row=1, column=j).value = ws1.cell(row=1, column=j).value
+
+        current_row = 2
+
+        for wb in wbs:
+            for ws in wb.worksheets:
+                mr = ws.max_row 
+                mc = ws.max_column 
+
+                for i in range (2, mr + 1): 
+                    for j in range (1, mc + 1): 
+                        current_cell = ws.cell(row = i, column = j) 
+                        final_ws.cell(row = current_row, column = j).value = current_cell.value
+
+                    current_row += 1
+                    
+        cols = ["A", "B", "C", "D", "E", "F", "G", "N"]
+        null_fill = PatternFill(patternType="solid", fgColor="D9D9D9")
+        normal_align = Alignment(horizontal="left", vertical="top")
+        border = Border(left=Side(style='thin'),
+                        right=Side(style='thin'),
+                        top=Side(style='thin'),
+                        bottom=Side(style='thin'))
+        header_fill = PatternFill(patternType="solid", fgColor="FFFF99")
+
+        # set border
+        for column_cells in final_ws.columns:
+            length = max(len(str(cell.value)) for cell in column_cells)
+            final_ws.column_dimensions[column_cells[0].column_letter].width = length
+
+        # styling
+        for row in final_ws.iter_rows():
+            for cell in row:
+                if cell.row == 1:
+                    cell.fill = header_fill
+                if cell.value is None:
+                    cell.fill = null_fill
+                cell.alignment = normal_align
+                cell.border = border
+                
+        # merge cells
+        for col in cols:
+            try:
+                cur_col = 2
+                for cell in final_ws[f"{col}2:{col}{current_row}"]:
+                    if cell.value is None:
+                        final_ws.merge_cells(f"{col}{cur_col}:{col}{cur_col + 1}")
+                        cur_col += 2
+                    #ws.merge_cells(f"{col}2:{col}{len() + 1}")
+            except ValueError:
+                pass
+
+        final_wb.save(os.path.join(output, "DocJuice! - " + time.strftime("%Y-%m-%d %H-%M-%S") + ".xlsx"))
         
 
 

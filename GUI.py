@@ -195,7 +195,7 @@ class Ui_Main(object):
                     print (f"{cur_file} is a BBL invoice")
                 elif all(x in utils.ie_extract_text(file) for x in Ie.SCB_KEYWORDS):
                     inv = Ie.SCBInvoice(file)
-                    self,textBrowser.append(QtCore.QCoreApplication.translate("Main", r"%s : %s is a SCB invoice "%(self.getTime(), cur_file)))
+                    self.textBrowser.append(QtCore.QCoreApplication.translate("Main", r"%s : %s is a SCB invoice "%(self.getTime(), cur_file)))
                     print (f"{cur_file} is a SCB invoice")
                 else:
                     skipped += 1
@@ -207,9 +207,11 @@ class Ui_Main(object):
                     self.textBrowser.append(QtCore.QCoreApplication.translate("Main", r"%s : Skipped file %s "%(self.getTime(), cur_file)))
                 finally:
                     inv.close()
-                    self.scriptFinish()
                     file_scaned += 1
                     self.textBrowser.append(QtCore.QCoreApplication.translate("Main", r"%s : %s is done %d/%d "%(self.getTime(), cur_file, file_scaned, len_file)))
+            
+        Ie.PDFInvoice.merge_wb(None)
+        self.scriptFinish()
 
                     
                     
