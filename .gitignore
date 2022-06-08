@@ -132,6 +132,7 @@ dmypy.json
 /.idea
 /temp
 /output
+/ตัวอย่าง*
 *.txt
 *.ico
 progress.py
