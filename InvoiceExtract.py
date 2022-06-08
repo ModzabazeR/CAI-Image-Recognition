@@ -35,7 +35,7 @@ def compile_workbooks(workbooks_path: str, final_filename: str) -> None:
     wbs = []
     files = os.listdir(workbooks_path)
     for file in files:
-        if not file.startswith("~$") and file.endswith(".xlsx") and final_filename not in file:
+        if not file.startswith("~$") and file.endswith(".xlsx") and "final" not in file:
             wb = xl.load_workbook(os.path.join(workbooks_path, file))
             wbs.append(wb)
 

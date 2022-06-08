@@ -237,7 +237,7 @@ class Ui_Main(object):
         self.textBrowser.append(QtCore.QCoreApplication.translate("Main", r"%s : Log file saved to %s "%(self.getTime(), "log.txt")))
         self.textBrowser.moveCursor(QtGui.QTextCursor.End)
 
-        Ie.compile_workbooks(self.outputEdit.text(), "final.xlsx")
+        Ie.compile_workbooks(self.outputEdit.text(), f"final_{time.strftime('%Y-%m-%d_%H-%M-%S')}.xlsx")
 
         time.sleep(2)
         self.exportButton.setEnabled(True)
