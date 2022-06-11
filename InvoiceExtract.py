@@ -14,85 +14,90 @@ BBL_KEYWORDS = ("Currency THB Date", "By the instruction of", "Beneficiary name 
 KBANK_KEYWORDS = ("KASIKORNBANK PCL", "On behalf of", "Payment details are as follows")
 SCB_KEYWORDS = ("This document is an integral part of Credit Advice", "เรียนท่านเจ้าของบัญชี")
 TTB_PATTERN = r"(\d{10})[ ]+([\d.,]+)[ ]+([\d.,]+)[ ]+([\d.,]+)[ ]+([\d.,]+)"
+TTB_KEYWORDS = ("0 2299 2176", "0 2299 2572")
 BAY_KEYWORDS = ("0-2626-2626", "CMSSupport@krungsri.com")
 
 MAPPING = json.load(open("mapping.json", "r", encoding='utf-8'))
 
-def compile_workbooks(workbooks_path: str, final_filename: str) -> None:
+def compile_workbooks(workbooks_path: str, final_filename: str) -> str:
     """
     Compile all workbooks in a given directory into a single workbook.
     """
-    cols = ["A", "B", "C", "D", "E", "F", "G", "N"]
-    null_fill = PatternFill(patternType="solid", fgColor="D9D9D9")
-    normal_align = Alignment(horizontal="left", vertical="top")
-    border = Border(left=Side(style='thin'),
-                    right=Side(style='thin'),
-                    top=Side(style='thin'),
-                    bottom=Side(style='thin'))
-    header_fill = PatternFill(patternType="solid", fgColor="FFFF99")
-    bold = Font(bold=True)
-    
-    wbs = []
-    files = os.listdir(workbooks_path)
-    for file in files:
-        if not file.startswith("~$") and file.endswith(".xlsx") and "final" not in file:
-            wb = xl.load_workbook(os.path.join(workbooks_path, file))
-            wbs.append(wb)
+    try:
+        cols = ["A", "B", "C", "D", "E", "F", "G", "H", "O"]
+        null_fill = PatternFill(patternType="solid", fgColor="D9D9D9")
+        normal_align = Alignment(horizontal="left", vertical="top")
+        border = Border(left=Side(style='thin'),
+                        right=Side(style='thin'),
+                        top=Side(style='thin'),
+                        bottom=Side(style='thin'))
+        header_fill = PatternFill(patternType="solid", fgColor="FFFF99")
+        bold = Font(bold=True)
+        
+        wbs = []
+        files = os.listdir(workbooks_path)
+        for file in files:
+            if not file.startswith("~$") and file.endswith(".xlsx") and "final" not in file:
+                wb = xl.load_workbook(os.path.join(workbooks_path, file))
+                wbs.append(wb)
 
-    final_wb = xl.Workbook()
-    final_ws = final_wb.worksheets[0]
-    wb1 = wbs[0]
-    ws1 = wb1.worksheets[0]
+        final_wb = xl.Workbook()
+        final_ws = final_wb.worksheets[0]
+        wb1 = wbs[0]
+        ws1 = wb1.worksheets[0]
 
-    # Copy header
-    for i in range(1, ws1.max_column + 1):
-        final_ws.cell(row=1, column=i).value = ws1.cell(row=1, column=i).value
+        # Copy header
+        for i in range(1, ws1.max_column + 1):
+            final_ws.cell(row=1, column=i).value = ws1.cell(row=1, column=i).value
 
-    # Copy data
-    current_row = 2
-    for wb in wbs:
-        for ws in wb.worksheets:
-            start_row = current_row
-            mr = ws.max_row
-            mc = ws.max_column
-            
-            for i in range(2, mr + 1):
-                for j in range(1, mc + 1):
-                    current_cell = ws.cell(row=i, column=j)
-                    final_ws.cell(row=current_row, column=j).value = current_cell.value
-                current_row += 1
+        # Copy data
+        current_row = 2
+        for wb in wbs:
+            for ws in wb.worksheets:
+                start_row = current_row
+                mr = ws.max_row
+                mc = ws.max_column
+                
+                for i in range(2, mr + 1):
+                    for j in range(1, mc + 1):
+                        current_cell = ws.cell(row=i, column=j)
+                        final_ws.cell(row=current_row, column=j).value = current_cell.value
+                    current_row += 1
 
-            # merge cells
-            for col in cols:
-                try:
-                    final_ws.merge_cells(f"{col}{start_row}:{col}{current_row - 1}")
-                except ValueError:
-                    pass
+                # merge cells
+                for col in cols:
+                    try:
+                        final_ws.merge_cells(f"{col}{start_row}:{col}{current_row - 1}")
+                    except ValueError:
+                        pass
 
 
-    # Formatting
-    c = final_ws["C2"]
-    final_ws.freeze_panes = c
-    
-    for col_cells in final_ws.columns:
-        length = max(len(str(cell.value)) for cell in col_cells)
-        final_ws.column_dimensions[col_cells[0].column_letter].width = length
+        # Formatting
+        d = final_ws["D2"]
+        final_ws.freeze_panes = d
+        
+        for col_cells in final_ws.columns:
+            length = max(len(str(cell.value)) for cell in col_cells)
+            final_ws.column_dimensions[col_cells[0].column_letter].width = length
 
-    # styling
-    for row in final_ws.iter_rows():
-        for cell in row:
-            if cell.row == 1:
-                cell.fill = header_fill
-                cell.font = bold
-            if cell.value is None:
-                cell.fill = null_fill
-            cell.alignment = normal_align
-            cell.border = border
+        # styling
+        for row in final_ws.iter_rows():
+            for cell in row:
+                if cell.row == 1:
+                    cell.fill = header_fill
+                    cell.font = bold
+                if cell.value is None:
+                    cell.fill = null_fill
+                cell.alignment = normal_align
+                cell.border = border
 
-    final_wb.save(os.path.join(workbooks_path, final_filename))
-    for file in files:
-        if os.path.exists(os.path.join(workbooks_path, file)) and final_filename not in file:
-            os.remove(os.path.join(workbooks_path, file))
+        final_wb.save(os.path.join(workbooks_path, final_filename))
+        for file in files:
+            if os.path.exists(os.path.join(workbooks_path, file)) and "final" not in file:
+                os.remove(os.path.join(workbooks_path, file))
+        return "Merge files successfully"
+    except Exception as e:
+        return f"Error while merging the file: {e}"
 
 # -------- PDF Invoice -------- #
 output = ''
@@ -125,6 +130,7 @@ class PDFInvoice:
 
     def get_entries(self, mode: str = "records") -> dict:
         data = {
+            "File Name": os.path.basename(self.file_path),
             "Company (Receive)": self.receiver,
             "Bank": self.bank,
             "Account Bank": self.receiver_account,
@@ -153,7 +159,7 @@ class PDFInvoice:
             for page in self.info:
                 f.write(f'[PAGE {page.page_number}]\n') if page.page_number == 1 else f.write(
                     f'\n[PAGE {page.page_number}]\n')
-                f.write(page.extract_text())
+                f.write(utils.correct_words(page.extract_text(), MAPPING))
         print(f'"{os.path.basename(self.file_path)}.txt" written to {output}')
 
     def to_json(self) -> None:
@@ -489,6 +495,10 @@ class BBLInvoice(PDFInvoice):
         if cheque_id_match:
             self.cheque_id = cheque_id_match.group(2)
 
+        bank_charge_match = re.search(r'Bank Charge.*: *([\d,.]+)', self.text)
+        if bank_charge_match:
+            self.bank_charge = bank_charge_match.group(1)
+
     def __init__(self, file_path: str) -> None:
         super().__init__(file_path)
         self.bank = 'กรุงเทพ (BBL)'
@@ -515,6 +525,7 @@ class BBLInvoice(PDFInvoice):
             # Filter out empty rows
             table = list(filter(lambda a: a != ['', '', '', '', '', '', ''] and a != [
                 '', '', '', '', ''], table))
+            print(table)
 
             # replace \n with space in the table
             for i in range(len(table)):
@@ -536,6 +547,7 @@ class BBLInvoice(PDFInvoice):
         data.insert(1, "Amt. (Exc. Vat)", placeholder)
         data.insert(2, "Amt Vat.", placeholder)
         data["Net Amount"] = placeholder
+        data = data.drop(data[data["Invoice No."] == "Invoice No."].index)
 
         data = data.rename(columns={"Invoice No.": "Invoice No.",
                                     "Gross Amount": "Amt. (Inc. Vat)", "WHT Amount": "WHT Amt."})
@@ -624,6 +636,10 @@ class BAYInvoice(PDFInvoice):
         total_after_tax_match = re.search(r"Transaction Amount[ *]+([\d,.]+)", self.text)
         if total_after_tax_match:
             self.total_after_tax = total_after_tax_match.group(1)
+
+        bank_charge_match = re.search(r"Fee Charge[ *]+([\d,.]+)", self.text)
+        if bank_charge_match:
+            self.bank_charge = bank_charge_match.group(1)
         
         receiver_match = re.search(r"Beneficiary Name[ ]+(.+)", self.text)
         if receiver_match:

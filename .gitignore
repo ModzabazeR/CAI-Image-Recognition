@@ -134,7 +134,6 @@ dmypy.json
 /output
 /ตัวอย่าง*
 *.txt
-*.ico
 progress.py
 *.pem
 *.ipynb

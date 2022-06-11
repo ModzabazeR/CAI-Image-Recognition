@@ -24,6 +24,7 @@ class Ui_Main(object):
         
         Main.setObjectName("Main")
         Main.setWindowModality(QtCore.Qt.ApplicationModal)
+        Main.setWindowIcon(QtGui.QIcon('icon.ico'))
         Main.resize(640, 480)
         Main.setMinimumSize(QtCore.QSize(640, 480))
         Main.setMaximumSize(QtCore.QSize(640, 480))
@@ -197,7 +198,7 @@ class Ui_Main(object):
                     inv = Ie.SCBInvoice(file)
                     self.textBrowser.append(QtCore.QCoreApplication.translate("Main", r"%s : %s detected as SCB invoice "%(self.getTime(), cur_file)))
                     print (f"{cur_file} detected as SCB invoice")
-                elif re.search(Ie.TTB_PATTERN, utils.ie_extract_text(file)):
+                elif all(x in utils.ie_extract_text(file) for x in Ie.TTB_KEYWORDS) and re.search(Ie.TTB_PATTERN, utils.ie_extract_text(file)):
                     inv = Ie.TTBInvoice(file)
                     self.textBrowser.append(QtCore.QCoreApplication.translate("Main", r"%s : %s detected as TTB invoice "%(self.getTime(), cur_file)))
                     print (f"{cur_file} detected as TTB invoice")
@@ -213,16 +214,18 @@ class Ui_Main(object):
                 try:
                     # inv.get_invoice_info()
                     inv.to_excel()
-                # except Exception as e:
-                #     self.textBrowser.append(QtCore.QCoreApplication.translate("Main", f"Error at {cur_file}: {e}"))
-                    # self.textBrowser.append(QtCore.QCoreApplication.translate("Main", r"%s : Skipped file %s "%(self.getTime(), cur_file)))
+                    self.file_scanned += 1
+                except Exception as e:
+                    self.textBrowser.append(QtCore.QCoreApplication.translate("Main", f"Error at {cur_file}: {e}"))
+                    self.textBrowser.append(QtCore.QCoreApplication.translate("Main", r"%s : Skipped file %s "%(self.getTime(), cur_file)))
+                    self.skipped += 1
+                    continue
                 finally:
                     inv.close()
-                    self.file_scanned += 1
                     self.textBrowser.append(QtCore.QCoreApplication.translate("Main", r"%s : %s Completed "%(self.getTime(), cur_file)))
                     self.textBrowser.append(QtCore.QCoreApplication.translate("Main", r""))
                     self.textBrowser.moveCursor(QtGui.QTextCursor.End)
-
+        
         self.scriptFinish()
 
                     
@@ -232,12 +235,15 @@ class Ui_Main(object):
         self.textBrowser.append(QtCore.QCoreApplication.translate("Main", r"%s : %d files exported, %d files skipped "%(self.getTime(), self.file_scanned, self.skipped)))
         self.textBrowser.append(QtCore.QCoreApplication.translate("Main", r"%s : Finished export "%(self.getTime())))
 
+        if self.skipped != len(self.file_list):
+            self.textBrowser.append(QtCore.QCoreApplication.translate("Main", r"%s : Merging Excel Files... "%(self.getTime())))
+            status = Ie.compile_workbooks(self.outputEdit.text(), f"final_{time.strftime('%Y-%m-%d_%H-%M-%S')}.xlsx")
+            self.textBrowser.append(QtCore.QCoreApplication.translate("Main", r"%s : %s "%(self.getTime(), status)))
+
         with open("log.txt", "w", encoding="utf-8") as f:
             f.write(self.textBrowser.toPlainText())
         self.textBrowser.append(QtCore.QCoreApplication.translate("Main", r"%s : Log file saved to %s "%(self.getTime(), "log.txt")))
         self.textBrowser.moveCursor(QtGui.QTextCursor.End)
-
-        Ie.compile_workbooks(self.outputEdit.text(), f"final_{time.strftime('%Y-%m-%d_%H-%M-%S')}.xlsx")
 
         time.sleep(2)
         self.exportButton.setEnabled(True)
@@ -259,4 +265,3 @@ if __name__ == "__main__":
     ui.setupUi(Main)
     Main.show()
     sys.exit(app.exec_())
-    del Main, app
