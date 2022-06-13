@@ -215,6 +215,7 @@ class Ui_Main(object):
                     # inv.get_invoice_info()
                     inv.to_excel()
                     self.file_scanned += 1
+                    self.textBrowser.append(QtCore.QCoreApplication.translate("Main", r"%s : %s Completed "%(self.getTime(), cur_file)))
                 except Exception as e:
                     self.textBrowser.append(QtCore.QCoreApplication.translate("Main", f"Error at {cur_file}: {e}"))
                     self.textBrowser.append(QtCore.QCoreApplication.translate("Main", r"%s : Skipped file %s "%(self.getTime(), cur_file)))
@@ -222,7 +223,6 @@ class Ui_Main(object):
                     continue
                 finally:
                     inv.close()
-                    self.textBrowser.append(QtCore.QCoreApplication.translate("Main", r"%s : %s Completed "%(self.getTime(), cur_file)))
                     self.textBrowser.append(QtCore.QCoreApplication.translate("Main", r""))
                     self.textBrowser.moveCursor(QtGui.QTextCursor.End)
         

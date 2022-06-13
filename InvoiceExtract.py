@@ -24,7 +24,7 @@ def compile_workbooks(workbooks_path: str, final_filename: str) -> str:
     Compile all workbooks in a given directory into a single workbook.
     """
     try:
-        cols = ["A", "B", "C", "D", "E", "F", "G", "H", "O"]
+        cols = ["A", "B", "C", "D", "E", "F", "G", "H", "P"]
         null_fill = PatternFill(patternType="solid", fgColor="D9D9D9")
         normal_align = Alignment(horizontal="left", vertical="top")
         border = Border(left=Side(style='thin'),
@@ -37,7 +37,7 @@ def compile_workbooks(workbooks_path: str, final_filename: str) -> str:
         wbs = []
         files = os.listdir(workbooks_path)
         for file in files:
-            if not file.startswith("~$") and file.endswith(".xlsx") and "final" not in file:
+            if not file.startswith("~$") and file.endswith(".xlsx") and "final" not in file and "docjuice" in file:
                 wb = xl.load_workbook(os.path.join(workbooks_path, file))
                 wbs.append(wb)
 
@@ -202,7 +202,7 @@ class PDFInvoice:
         # remove every cell started by '
         df = df.replace(r'^\'', '', regex=True)
 
-        df.to_excel(f"{output}/{os.path.basename(self.file_path)}.xlsx", index=False)
+        df.to_excel(f"{output}/docjuice_{os.path.basename(self.file_path)}.xlsx", index=False)
         os.remove(f"{output}/{os.path.basename(self.file_path)}.csv")
 
 
@@ -221,21 +221,26 @@ class KBANKInvoice(PDFInvoice):
         ])
 
     def extract(self, path: str, mode="records") -> dict:
-        pdf = pdfplumber.open(path)
-        p0 = pdf.pages[1]
-        text = p0.extract_text()
-        core_pat = re.compile(r"NET AMOUNT\n=+\n(.*)\n=+\nTOTAL", re.DOTALL)
-        core = re.search(core_pat, text).group(1)
-
-        if type(core) is not str:
-            return {
+        empty_data = {
                     "Invoice No.": [],
+                    "Invoice Descriptions": [],
                     "Amt. (Exc. Vat)": [],
                     "Amt Vat.": [],
                     "Amt. (Inc. Vat)": [],
                     "WHT Amt.": [],
                     "Net Amount": []
                 }
+        pdf = pdfplumber.open(path)
+        try:
+            p0 = pdf.pages[1]
+        except IndexError:
+            return empty_data
+        text = p0.extract_text()
+        core_pat = re.compile(r"NET AMOUNT\n=+\n(.*)\n=+\nTOTAL", re.DOTALL)
+        core = re.search(core_pat, text).group(1)
+
+        if type(core) is not str:
+            return empty_data
 
         core = core.split("\n")
 
@@ -246,6 +251,8 @@ class KBANKInvoice(PDFInvoice):
         data = data.rename(columns={"INV.NUMBER": "Invoice No.", "INV.AMOUNT": "Amt. (Exc. Vat)",
                                     "VAT AMT": "Amt Vat.", "WHT AMT": "WHT Amt.",
                                     "NET AMOUNT": "Net Amount"})
+        placeholder = [None for _ in range(len(data))]
+        data.insert(1, 'Invoice Descriptions', placeholder)
         data = data.replace([''], [None])
         data_dict = data.to_dict(orient=mode)
         return data_dict
@@ -258,12 +265,12 @@ class KBANKInvoice(PDFInvoice):
 
         self.text = utils.correct_words(self.text, MAPPING)
 
-        type_match = re.search(r"(Subject : )(\w)+", self.text)
+        type_match = re.search(r"(Subject *: *)(\w)+", self.text)
         if type_match:
             self.invoice_type = type_match.group(2)
 
         date_match = re.search(
-            r"(Cheque Date : )(\d{2}/\d{2}/\d{4})", self.text)
+            r"(Cheque Date|Date) *:? *(\d{2}/\d{2}/\d{4})", self.text)
         if date_match:
             self.payment_date = date_match.group(2)
         else:
@@ -271,14 +278,14 @@ class KBANKInvoice(PDFInvoice):
                 f'Payment date not found in {os.path.basename(self.file_path)}')
 
         sender_match = re.search(
-            r"(Payer Name\s+: )([\w ()ก-๛.,]+)", self.text)
+            r"(Payer Name|On behalf of) *:? *([\w ()ก-๛.,]+)", self.text)
         if sender_match:
             self.sender = sender_match.group(2)
         else:
             print(
                 f'Sender name not found in {os.path.basename(self.file_path)}')
 
-        receiver_match = re.search(r"(To : )([\w ()ก-๛.,]+)", self.text)
+        receiver_match = re.search(r"(To *: *)([\w ()ก-๛.,]+)", self.text)
         if receiver_match:
             self.receiver = receiver_match.group(2)
         else:
@@ -286,7 +293,7 @@ class KBANKInvoice(PDFInvoice):
                 f'Receiver name not found in {os.path.basename(self.file_path)}')
 
         total_match = re.search(
-            r"(Total Invoice after VAT : \*+)([\d,.]+)", self.text)
+            r"(Total Invoice after VAT|Amount) *: *\*+([\d,.]+)", self.text)
         if total_match:
             self.total_after_tax = total_match.group(2)
         else:
@@ -294,10 +301,10 @@ class KBANKInvoice(PDFInvoice):
                 f'Total after tax not found in {os.path.basename(self.file_path)}')
 
         bank_charge_match = re.search(
-            r"(Benef Charges : \*+)([\d,.]+)", self.text)
+            r"(Benef\.? Charges *: *\*+)([\d,.]+)", self.text)
         if bank_charge_match:
             self.bank_charge = bank_charge_match.group(2)
-            self.bank_charge = self.bank_charge.replace(".00", "0")
+            self.bank_charge = "0.00" if self.bank_charge == ".00" else self.bank_charge
 
     def __init__(self, file_path: str) -> None:
         super().__init__(file_path)
@@ -378,7 +385,7 @@ class SCBInvoice(PDFInvoice):
 
     def extract(self, path: str, mode="records") -> dict:
         pdf = pdfplumber.open(path)
-        cols = ["Invoice No. / Purchase Order No.", "Invoice Descriptions", "Invoice Date", "Type of Income", "Invoice Amount", "VAT Amount", "WHT Amount"]
+        cols = ["Invoice No.", "Invoice Descriptions", "Invoice Date", "Type of Income", "Invoice Amount", "VAT Amount", "WHT Amount"]
         data = pd.DataFrame(columns=cols)
 
         for page in pdf.pages:
@@ -391,49 +398,17 @@ class SCBInvoice(PDFInvoice):
             df = pd.DataFrame(table[1:], columns=cols)
             data = pd.concat([data, df], ignore_index=True)
 
-        inv_id_cols = []
-        order_id_cols = []
-        inv_desc_cols = []
-        inv_id_final = []
+        # for only detect numbers, but deprecated because the document format is unreliable.
+        # for i, row in data[[cols[1]]].iterrows():
+        #     data.loc[i, cols[1]] = re.match(r"\d+", row[cols[1]]).group() if re.match(r"\d+", row[cols[1]]) else None
 
-        for _, row in data[[cols[0]]].iterrows():
-            inv_id, order_id = row[cols[0]].split('/')[0:2]
-            inv_id = inv_id.strip()
-            order_id = order_id.strip()
-
-            inv_id_cols.append(inv_id)
-            order_id_cols.append(order_id)
-
-        for _, row in data[[cols[1]]].iterrows():
-            inv_desc = re.match(r"\d+", row[cols[1]]).group() if re.match(r"\d+", row[cols[1]]) else ''
-            inv_desc_cols.append(inv_desc)
-            inv_desc_cols.append(inv_desc)
-
-        for i in range(len(inv_id_cols)):
-            if inv_desc_cols[i] != '':
-                inv_id_final.append(inv_id_cols[i] + ' / ' + inv_desc_cols[i])
-            else:
-                inv_id_final.append(inv_id_cols[i])
-
-        data.insert(0, 'Invoice No.', inv_id_final)
-        data.insert(1, 'Purchase Order No.', order_id_cols)
-
-        data = data[["Invoice No.", "Purchase Order No.", "Invoice Date", "Invoice Amount", "VAT Amount", "WHT Amount"]]
-
-        date_pattern = re.compile(r'\d{2}/\d{2}/\d{4}')
-
-        for index, row in data[[cols[2]]].iterrows():
-            date_match = re.search(date_pattern, row[cols[2]])
-            if date_match:
-                data.at[index, cols[2]] = date_match.group()
-
-        data = data[["Invoice No.", "VAT Amount", "WHT Amount", "Invoice Amount"]]
+        data = data[["Invoice No.", "Invoice Descriptions", "VAT Amount", "WHT Amount", "Invoice Amount"]]
         data = data.rename(columns={'Invoice No.': 'Invoice No.', 'Invoice Amount': 'Net Amount',
                                     'VAT Amount': 'Amt Vat.', 'WHT Amount': 'WHT Amt.'})
 
         placeholder = [None for _ in range(len(data))]
-        data.insert(1, 'Amt. (Exc. Vat)', placeholder)
-        data.insert(3, "Amt. (Inc. Vat)", placeholder)
+        data.insert(2, 'Amt. (Exc. Vat)', placeholder)
+        data.insert(4, "Amt. (Inc. Vat)", placeholder)
 
         data = data.replace([''], [None])
         data_dict = data.to_dict(orient=mode)
@@ -515,6 +490,7 @@ class BBLInvoice(PDFInvoice):
             if type(table) != list:
                 return {
                     "Invoice No.": [],
+                    "Invoice Descriptions": [],
                     "Amt. (Exc. Vat)": [],
                     "Amt Vat.": [],
                     "Amt. (Inc. Vat)": [],
@@ -525,29 +501,31 @@ class BBLInvoice(PDFInvoice):
             # Filter out empty rows
             table = list(filter(lambda a: a != ['', '', '', '', '', '', ''] and a != [
                 '', '', '', '', ''], table))
-            print(table)
 
             # replace \n with space in the table
             for i in range(len(table)):
                 for j in range(len(table[i])):
                     table[i][j] = table[i][j].replace('\n', ' ')
 
-            if page.page_number == 1 and self.invoice_type == 'Credit Advice Report':
-                df = pd.DataFrame(table[0:-1], columns=cols)
-            else:
-                df = pd.DataFrame(
-                    table[1:-1], columns=cols) if self.invoice_type == 'Credit Advice Report' else pd.DataFrame(table,
-                                                                                                                columns=cols)
+            for item in table[-1]:
+                if "e-WHT" in item:
+                    table.pop(-1)
+                    break
+            df = pd.DataFrame(table, columns=cols)
 
             data = pd.concat([data, df], ignore_index=True)
 
         data = data.drop(0)
         data = data[["Invoice No.", "Gross Amount", "WHT Amount"]]
         placeholder = [None for _ in range(len(data))]
-        data.insert(1, "Amt. (Exc. Vat)", placeholder)
-        data.insert(2, "Amt Vat.", placeholder)
+        data.insert(1, 'Invoice Descriptions', placeholder)
+        data.insert(2, "Amt. (Exc. Vat)", placeholder)
+        data.insert(3, "Amt Vat.", placeholder)
         data["Net Amount"] = placeholder
         data = data.drop(data[data["Invoice No."] == "Invoice No."].index)
+        # if part of "e-WHT" string in any row, delete the row
+        # data = data[~data["Amt. (Inc. Vat)"].str.contains("e-WHT")]
+        # data = data[~data["WHT Amt."].str.contains("e-WHT")]
 
         data = data.rename(columns={"Invoice No.": "Invoice No.",
                                     "Gross Amount": "Amt. (Inc. Vat)", "WHT Amount": "WHT Amt."})
@@ -557,6 +535,7 @@ class BBLInvoice(PDFInvoice):
         if all(data.isna().all()):
             return {
                     "Invoice No.": [],
+                    "Invoice Descriptions": [],
                     "Amt. (Exc. Vat)": [],
                     "Amt Vat.": [],
                     "Amt. (Inc. Vat)": [],
@@ -614,9 +593,11 @@ class TTBInvoice(PDFInvoice):
         text = utils.correct_words(text, MAPPING)
 
         info = re.findall(r"(\d{10})[ ]+([\d.,]+)[ ]+([\d.,]+)[ ]+([\d.,]+)[ ]+([\d.,]+)", text)
-        data = pd.DataFrame(info, columns=["Invoice No.", "Amt (ก่อน Vat)", "Vat Amt.", "WHT Amt.", "Amt. (Inc. Vat)"])
-        data = data[["Invoice No.", "Amt (ก่อน Vat)", "Vat Amt.", "Amt. (Inc. Vat)", "WHT Amt."]]
-        data.insert(5, 'Net Amount', data["Amt. (Inc. Vat)"])
+        data = pd.DataFrame(info, columns=["Invoice No.", "Amt. (Exc. Vat)", "Vat Amt.", "WHT Amt.", "Amt. (Inc. Vat)"])
+        data = data[["Invoice No.", "Amt. (Exc. Vat)", "Vat Amt.", "Amt. (Inc. Vat)", "WHT Amt."]]
+        placeholder = [None for _ in range(len(data))]
+        data.insert(1, 'Invoice Descriptions', placeholder)
+        data.insert(6, 'Net Amount', data["Amt. (Inc. Vat)"])
 
         data_dict = data.to_dict(orient=mode)
 
@@ -658,6 +639,6 @@ class BAYInvoice(PDFInvoice):
             self.receiver_account = receiver_account_match.group(1)
 
     def extract(self, file: str, mode: str = "records") -> dict:
-        data = pd.DataFrame([], columns=["Invoice No.", "Amt (ก่อน Vat)", "Vat Amt.", "Amt. (Inc. Vat)", "WHT Amt.", "Net Amount"])
+        data = pd.DataFrame([], columns=["Invoice No.", "Invoice Descriptions", "Amt. (Exc. Vat)", "Vat Amt.", "Amt. (Inc. Vat)", "WHT Amt.", "Net Amount"])
         data_dict = data.to_dict(orient=mode)
         return data_dict
