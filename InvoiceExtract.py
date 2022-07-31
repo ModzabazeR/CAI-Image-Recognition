@@ -235,9 +235,25 @@ class KBANKInvoice(PDFInvoice):
             p0 = pdf.pages[1]
         except IndexError:
             return empty_data
-        text = p0.extract_text()
-        core_pat = re.compile(r"NET AMOUNT\n=+\n(.*)\n=+\nTOTAL", re.DOTALL)
-        core = re.search(core_pat, text).group(1)
+
+        if len(pdf.pages) <= 2:        
+            text = p0.extract_text()
+            core_pat = re.compile(r"NET AMOUNT\n=+\n(.*)\n=+\nTOTAL", re.DOTALL)
+            core = re.search(core_pat, text).group(1)
+        else:
+            core = ""
+            for i, page in enumerate(pdf.pages):
+                if i == 0:
+                    continue
+                if i != len(pdf.pages) - 1:
+                    text = page.extract_text()
+                    core_pat = re.compile(r"NET AMOUNT\n=+\n(.*)\n(TRIAL MODE)*", re.DOTALL)
+                    core += f"{re.search(core_pat, text).group(1)}\n"
+                else:
+                    text = page.extract_text()
+                    core_pat = re.compile(r"INVOICE DETAIL\n(.*)\n=+\nTOTAL", re.DOTALL)
+                    core += re.search(core_pat, text).group(1)
+
 
         if type(core) is not str:
             return empty_data
@@ -485,9 +501,9 @@ class BBLInvoice(PDFInvoice):
 
         data = pd.DataFrame(columns=cols)
 
-        for page in pdf.pages:
+        for i, page in enumerate(pdf.pages):
             table = page.extract_table()
-            if type(table) != list:
+            if type(table) != list and i == 0:
                 return {
                     "Invoice No.": [],
                     "Invoice Descriptions": [],
@@ -497,6 +513,8 @@ class BBLInvoice(PDFInvoice):
                     "WHT Amt.": [],
                     "Net Amount": []
                 }
+            if type(table) != list and i == len(pdf.pages) - 1:
+                continue
 
             # Filter out empty rows
             table = list(filter(lambda a: a != ['', '', '', '', '', '', ''] and a != [

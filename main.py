@@ -119,7 +119,7 @@ class Ui_Main(object):
         self.label_2.setText(_translate("Main", "Output directory: "))
         self.outputButtion.setText(_translate("Main", "Browse..."))
         self.groupBox.setTitle(_translate("Main", "Status"))
-        self.textBrowser.setText(_translate("Main", r"%s : Welcome to DocJuice 2.0! "%datetime.datetime.now().strftime("%H:%M:%S")))
+        self.textBrowser.setText(_translate("Main", r"%s : Welcome to DocJuice 2.0! "%self.getTime()))
         self.inputEdit.setReadOnly(True)
         self.inputEdit.setStyleSheet("color: #252525; background-color: #F0F0F0;")
         self.outputEdit.setReadOnly(True)
@@ -140,18 +140,23 @@ class Ui_Main(object):
                 self.textBrowser.append(f"{datetime.datetime.now().strftime('%H:%M:%S')}: You have selected {len(response[0])} files. - {', '.join(map(os.path.basename, response[0]))}")
                 return response[0]
         except UnicodeError as e:
-            self.textBrowser.append(QtCore.QCoreApplication.translate("Main", r"%s : %s "%(datetime.datetime.now().strftime("%H:%M:%S"),e)))
+            self.textBrowser.append(QtCore.QCoreApplication.translate("Main", r"%s : %s "%(self.getTime(),e)))
         
     def getFileNamesOutput(self):
-        response = QFileDialog.getExistingDirectory(
-            caption='Select output directory',
-            directory=os.getcwd(),
-            )
-        print(response)
-        if response[0] :
-            self.outputEdit.setText(response)
-            self.dataCheck()
-            self.textBrowser.append(QtCore.QCoreApplication.translate("Main", r"%s : Set output directory at %s "%(datetime.datetime.now().strftime("%H:%M:%S"),response)))
+        try:
+            response = QFileDialog.getExistingDirectory(
+                caption='Select output directory',
+                directory=os.getcwd(),
+                )
+            print(response)
+            if response[0] :
+                self.outputEdit.setText(response)
+                self.dataCheck()
+                self.textBrowser.append(QtCore.QCoreApplication.translate("Main", r"%s : Set output directory at %s "%(self.getTime(),response)))
+        except IndexError:
+            self.textBrowser.append(QtCore.QCoreApplication.translate("Main", f"{datetime.datetime.now().strftime('%H:%M:%S')} : Please select an output directory."))
+        except Exception as e:
+            self.textBrowser.append(QtCore.QCoreApplication.translate("Main", r"%s : %s "%(self.getTime(),e)))
 
     def dataCheck(self):
         if self.inputEdit.text() != '' and self.outputEdit.text() != '':
@@ -212,7 +217,6 @@ class Ui_Main(object):
                     self.textBrowser.append(QtCore.QCoreApplication.translate("Main", r""))
                     continue 
                 try:
-                    # inv.get_invoice_info()
                     inv.to_excel()
                     self.file_scanned += 1
                     self.textBrowser.append(QtCore.QCoreApplication.translate("Main", r"%s : %s Completed "%(self.getTime(), cur_file)))
